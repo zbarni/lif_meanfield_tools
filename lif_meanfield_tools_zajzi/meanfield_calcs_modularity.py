@@ -43,7 +43,7 @@ import pint
 import scipy.optimize as sopt
 import scipy.integrate as sint
 import scipy.misc as smisc
-from scipy.special import zetac
+from scipy.special import zetac, erf
 
 
 from . import ureg
@@ -350,7 +350,7 @@ def _transfer_function_1p_shift(mu, sigma, tau_m, tau_s, tau_r, V_th_rel,
     # for frequency zero the exact expression is given by the derivative of
     # f-I-curve
     if np.abs(omega - 0.) < 1e-15:
-        result = aux_calcs.d_nu_d_mu(tau_m, tau_s, tau_r, V_th_rel, V_0_rel, mu,
+        result = aux_calcs.d_nu_d_mu(tau_m, tau_r, V_th_rel, V_0_rel, mu,
                                      sigma)
     else:
         nu = aux_calcs.nu_0(tau_m, tau_r, V_th_rel, V_0_rel, mu, sigma)
@@ -369,10 +369,10 @@ def _transfer_function_1p_shift(mu, sigma, tau_m, tau_s, tau_r, V_th_rel,
 
 
 def transfer_function(mu, sigma, tau_m, tau_s, tau_r, V_th_rel, V_0_rel,
-                      dimension, omegas):
+                      dimension, omegas, method='shift'):
     """
     Returns transfer functions for all populations based on
-    transfer_function_1p_shift().
+    transfer_function_1p_shift() (default) or transfer_function_1p_taylor()
 
     Parameters:
     -----------
@@ -394,6 +394,8 @@ def transfer_function(mu, sigma, tau_m, tau_s, tau_r, V_th_rel, V_0_rel,
         Number of populations.
     omegas: Quantity(np.ndarray, 'hertz')
         Input frequencies to population.
+    method: str
+        String specifying transfer function to use ('shift', 'taylor').
 
     Returns:
     --------
@@ -403,11 +405,19 @@ def transfer_function(mu, sigma, tau_m, tau_s, tau_r, V_th_rel, V_0_rel,
         given omegas.
     """
 
-    transfer_functions = [[transfer_function_1p_shift(mu[i], sigma[i], tau_m,
-                                                      tau_s, tau_r, V_th_rel,
-                                                      V_0_rel, omega)
-                           for i in range(dimension)]
-                          for omega in omegas]
+    if method == 'shift':
+        transfer_functions = [[transfer_function_1p_shift(mu[i], sigma[i], tau_m,
+                                                          tau_s, tau_r, V_th_rel,
+                                                          V_0_rel, omega)
+                               for i in range(dimension)]
+                              for omega in omegas]
+    if method == 'taylor':
+        transfer_functions = [[transfer_function_1p_taylor(mu[i], sigma[i], tau_m,
+                                                          tau_s, tau_r, V_th_rel,
+                                                          V_0_rel, omega)
+                               for i in range(dimension)]
+                              for omega in omegas]
+
 
     # convert list of list of quantities to list of quantities containing np.ndarray
     tf_magnitudes = np.array([np.array([tf.magnitude for tf in tf_population])
@@ -453,8 +463,8 @@ def delay_dist_matrix_single(dimension, Delay, Delay_sd, delay_dist, omega):
         return D*np.exp(-np.complex(0,omega)*Delay)
 
     elif delay_dist == 'truncated_gaussian':
-        a0 = aux_calcs.Phi(-Delay/Delay_sd+1j*omega*Delay_sd)
-        a1 = aux_calcs.Phi(-Delay/Delay_sd)
+        a0 = 0.5 * (1 + erf((-Delay/Delay_sd+1j*omega*Delay_sd) / np.sqrt(2)))
+        a1 = 0.5 * (1 + erf((-Delay/Delay_sd) / np.sqrt(2)))
         b0 = np.exp(-0.5*np.power(Delay_sd*omega,2))
         b1 = np.exp(-np.complex(0,omega)*Delay)
         return (1.0-a0)/(1.0-a1)*b0*b1
@@ -999,9 +1009,11 @@ def effective_coupling_strength(tau_m, tau_s, tau_r, V_0_rel, V_th_rel, J,
     return w_ecs
 
 
-@ureg.wraps((None, 1/ureg.s, 1/ureg.s, 1./ureg.m, 1./ureg.s, 1./ureg.s), (1/ureg.m, None, ureg.s, None, ureg.m, ureg.s, ureg.s,
-    ureg.mV, ureg.mV, ureg.s, ureg.s, ureg.s, ureg.mV, ureg.mV, ureg.mV,
-    None, None))
+@ureg.wraps((None, (1/ureg.s).units, (1/ureg.s).units, (1/ureg.m).units,
+             (1/ureg.s).units, (1/ureg.s).units),
+            ((1/ureg.m).units, None, ureg.s, None, ureg.m, ureg.s, ureg.s,
+             ureg.mV, ureg.mV, ureg.s, ureg.s, ureg.s, ureg.mV, ureg.mV,
+             ureg.mV, None, None))
 def linear_interpolation_alpha(k_wavenumbers, branches, tau_rate, W_rate, width,
         d_e, d_i, mean_inputs, std_inputs, tau_m, tau_s, tau_r, V_0_rel, V_th_rel,
         J, K, dimension):
@@ -1504,7 +1516,8 @@ def _solve_chareq_numerically_alpha(lambda_guess, alpha, k, delay, mu, sigma,
     lamb = complex(l_opt[0], l_opt[1])
     return lamb
 
-@ureg.wraps((None, None, 1/ureg.mm, 1/ureg.mm), (1/ureg.mm, None, ureg.mm))
+@ureg.wraps((None, None, (1/ureg.mm).units, (1/ureg.mm).units),
+            ((1/ureg.mm).units, None, ureg.mm))
 def xi_of_k(ks, W_rate, width):
     """
     Compute minimum and maximum of spatial profile xi of k
@@ -1543,7 +1556,8 @@ def xi_of_k(ks, W_rate, width):
     return xi_min, xi_max, k_min, k_max
 
 
-@ureg.wraps(1/ureg.s, (None, 1/ureg.mm, ureg.s, None, ureg.mm, ureg.s))
+@ureg.wraps((1/ureg.s).units,
+            (None, (1/ureg.mm).units, ureg.s, None, ureg.mm, ureg.s))
 def solve_chareq_rate_boxcar(branch, k_wavenumber, tau, W_rate, width, delay):
     """
     Solve the characteristic equation for the linearized rate model for

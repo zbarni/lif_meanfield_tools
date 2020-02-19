@@ -183,6 +183,11 @@ class Network(object):
         D = np.transpose(D)
         derived_params['Delay_sd'] = D
 
+        # TODO: Put calculation of network-specifc dervied parameters
+        # into an external script for enhanced generalization.
+        # (e.g. trigger execution of external script called <label>.py here)
+        # Changing the label currently leads to difference which are hard to
+        # track down.
         if self.network_params['label'] == 'microcircuit':
             # larger weight for L4E->L23E connections
             derived_params['W'][0][2] *= 2.0
@@ -217,7 +222,8 @@ class Network(object):
         derived_params['omegas'] = calc_evaluated_omegas(w_min, w_max, dw)
 
 
-        @ureg.wraps(1/ureg.mm, (1./ureg.mm, 1./ureg.mm, 1./ureg.mm))
+        @ureg.wraps((1/ureg.mm).units,
+                    ((1/ureg.mm).units, (1/ureg.mm).units, (1/ureg.mm).units))
         def calc_evaluated_wavenumbers(k_min, k_max, dk):
             return np.arange(k_min, k_max, dk)
 
@@ -540,7 +546,7 @@ class Network(object):
 
 
 
-    def transfer_function(self, freq=None):
+    def transfer_function(self, freq=None, method='shift'):
         """
         Calculates transfer function either for all frequencies or given one.
 
@@ -559,13 +565,13 @@ class Network(object):
         """
 
         if freq == None:
-            return self.transfer_function_multi()
+            return self.transfer_function_multi(method)
         else:
             return self.transfer_function_single(freq)
 
 
     @_check_and_store('transfer_function')
-    def transfer_function_multi(self):
+    def transfer_function_multi(self, method='shift'):
         """
         Calculates transfer function for each population.
 
@@ -584,14 +590,15 @@ class Network(object):
                                                  self.network_params['V_th_rel'],
                                                  self.network_params['V_0_rel'],
                                                  self.network_params['dimension'],
-                                                 self.analysis_params['omegas'])
+                                                 self.analysis_params['omegas'],
+                                                 method=method)
 
         return transfer_functions
 
 
 
     @_check_and_store('transfer_function_single', 'transfer_freqs')
-    def transfer_function_single(self, freq):
+    def transfer_function_single(self, freq, method='shift'):
         """
         Calculates transfer function for each population.
 
@@ -612,14 +619,15 @@ class Network(object):
                                                  self.network_params['V_th_rel'],
                                                  self.network_params['V_0_rel'],
                                                  self.network_params['dimension'],
-                                                 [omega])
+                                                 [omega],
+                                                 method=method)
 
         return transfer_functions
 
 
 
     @_check_and_store('sensitivity_measure', 'sensitivity_freqs')
-    def sensitivity_measure(self, freq):
+    def sensitivity_measure(self, freq, method='shift'):
         """
         Calculates the sensitivity measure for the given frequency.
 
@@ -648,7 +656,8 @@ class Network(object):
                                                               self.network_params['V_th_rel'],
                                                               self.network_params['V_0_rel'],
                                                               self.network_params['dimension'],
-                                                              [omega])
+                                                              [omega],
+                                                              method=method)
         if omega.magnitude < 0:
             transfer_function = np.conjugate(transfer_function)
 
@@ -666,7 +675,7 @@ class Network(object):
 
 
     @_check_and_store('power_spectra')
-    def power_spectra(self):
+    def power_spectra(self, method='shift'):
         """
         Calculates power spectra.
         """
@@ -679,13 +688,13 @@ class Network(object):
                                              self.delay_dist_matrix(),
                                              self.network_params['N'],
                                              self.firing_rates(),
-                                             self.transfer_function(),
+                                             self.transfer_function(method=method),
                                              self.analysis_params['omegas'])
 
 
 
     @_check_and_store('eigenvalue_spectra', 'eigenvalue_matrix')
-    def eigenvalue_spectra(self, matrix):
+    def eigenvalue_spectra(self, matrix, method='shift'):
         """
         Calculates the eigenvalues of the specified matrix at given frequency.
 
@@ -704,7 +713,7 @@ class Network(object):
 
         return  meanfield_calcs.eigen_spectra(self.network_params['tau_m'],
                                               self.network_params['tau_s'],
-                                              self.transfer_function(),
+                                              self.transfer_function(method=method),
                                               self.network_params['dimension'],
                                               self.delay_dist_matrix(),
                                               self.network_params['J'],
